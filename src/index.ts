@@ -36,7 +36,7 @@ export default {
       const uploader = new FileUploader(
         uploadRequest.geminiApiKey,
         progressReporter,
-        env.UPLOAD_PROGRESS
+        env.KV
       );
 
       // Start upload process
@@ -85,5 +85,5 @@ interface Env {
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
   GEMINI_API_KEY: string;
-  UPLOAD_PROGRESS: KVNamespace;
+  KV: KVNamespace;
 }
