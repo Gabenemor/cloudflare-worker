@@ -1,0 +1,13 @@
+name = "keyvid-file-uploader"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+SUPABASE_URL = "https://tnjpitcbpfuwtzakayat.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRuanBpdGNicGZ1d3R6YWtheWF0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAwMDgxNDEsImV4cCI6MjA2NTU4NDE0MX0.h_aJF6R338HK48_UXV5u4vp_biTSI8Bv1ElEqgbFTW4"
+
+[[kv_namespaces]]
+binding = "UPLOAD_PROGRESS"
+id = "21d0033adfe7492d9a91440abd55976d"
+preview_id = "21d0033adfe7492d9a91440abd55976d"
