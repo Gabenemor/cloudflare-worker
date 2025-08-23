@@ -20,16 +20,18 @@ export class FileUploader {
     const uploadId = crypto.randomUUID();
     
     try {
-      // Fetch the file to get total size
-      const response = await fetch(fileUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch file: ${response.statusText}`);
+      // Get file metadata using HEAD request (no download)
+      const headResponse = await fetch(fileUrl, { method: 'HEAD' });
+      if (!headResponse.ok) {
+        throw new Error(`Failed to get file metadata: ${headResponse.statusText}`);
       }
 
-      const totalSize = parseInt(response.headers.get('content-length') || '0');
+      const totalSize = parseInt(headResponse.headers.get('content-length') || '0');
       if (totalSize === 0) {
         throw new Error('Unable to determine file size');
       }
+
+      console.log(`📊 File size: ${Math.round(totalSize / 1024 / 1024)}MB - streaming in 8MB chunks`);
 
       // Report initial progress
       await this.progressReporter.reportProgress(uploadId, {
@@ -37,15 +39,15 @@ export class FileUploader {
         totalBytes: totalSize,
         percentage: 0,
         status: 'uploading',
-        message: 'Starting upload to Google Files API'
+        message: 'Starting streaming upload to Google Files API'
       });
 
       // Start resumable upload session
       const session = await this.startUploadSession(mimeType, displayName, totalSize);
       
-      // Stream and upload file in chunks
-      const fileUri = await this.uploadInChunks(
-        response.body!,
+      // Stream file directly from URL in chunks (no full download)
+      const fileUri = await this.streamUploadInChunks(
+        fileUrl,
         session,
         totalSize,
         uploadId,
@@ -61,13 +63,14 @@ export class FileUploader {
         totalBytes: totalSize,
         percentage: 100,
         status: 'completed',
-        message: 'Upload completed successfully'
+        message: 'Streaming upload completed successfully'
       });
 
       return {
         fileUri: activeFileUri,
         uploadId,
-        totalSize
+        totalSize,
+        expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString() // 48 hours
       };
 
     } catch (error) {
@@ -76,7 +79,7 @@ export class FileUploader {
         totalBytes: 0,
         percentage: 0,
         status: 'failed',
-        message: error instanceof Error ? error.message : 'Upload failed'
+        message: error instanceof Error ? error.message : 'Streaming upload failed'
       });
       throw error;
     }
@@ -119,75 +122,66 @@ export class FileUploader {
     return { uploadUrl };
   }
 
-  private async uploadInChunks(
-    stream: ReadableStream<Uint8Array>,
+  private async streamUploadInChunks(
+    fileUrl: string,
     session: GoogleFilesUploadSession,
     totalSize: number,
     uploadId: string,
     mimeType: string
   ): Promise<string> {
-    const reader = stream.getReader();
     let bytesUploaded = 0;
-    let buffer = new Uint8Array(0);
 
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        
-        if (value) {
-          // Append new data to buffer
-          const newBuffer = new Uint8Array(buffer.length + value.length);
-          newBuffer.set(buffer);
-          newBuffer.set(value, buffer.length);
-          buffer = newBuffer;
+    while (bytesUploaded < totalSize) {
+      const remainingBytes = totalSize - bytesUploaded;
+      const chunkSize = Math.min(FileUploader.CHUNK_SIZE, remainingBytes);
+      const isLastChunk = bytesUploaded + chunkSize >= totalSize;
+      
+      // Fetch chunk using Range request (no full file download)
+      const rangeEnd = bytesUploaded + chunkSize - 1;
+      const chunkResponse = await fetch(fileUrl, {
+        headers: {
+          'Range': `bytes=${bytesUploaded}-${rangeEnd}`
         }
+      });
 
-        // Upload chunks when buffer is large enough or stream is done
-        while (buffer.length >= FileUploader.CHUNK_SIZE || (done && buffer.length > 0)) {
-          const chunkSize = Math.min(FileUploader.CHUNK_SIZE, buffer.length);
-          const chunk = buffer.slice(0, chunkSize);
-          buffer = buffer.slice(chunkSize);
-
-          const isLastChunk = done && buffer.length === 0;
-          
-          const result = await this.uploadChunk(
-            session.uploadUrl,
-            chunk,
-            bytesUploaded,
-            totalSize,
-            mimeType,
-            isLastChunk
-          );
-
-          if (!result.success) {
-            throw new Error(`Chunk upload failed: ${result.error}`);
-          }
-
-          bytesUploaded += result.bytesUploaded;
-          
-          // Report progress
-          await this.progressReporter.reportProgress(uploadId, {
-            bytesUploaded,
-            totalBytes: totalSize,
-            percentage: Math.round((bytesUploaded / totalSize) * 100),
-            status: isLastChunk ? 'finalizing' : 'uploading',
-            message: isLastChunk ? 'Finalizing upload' : `Uploaded ${Math.round(bytesUploaded / 1024 / 1024)}MB`
-          });
-
-          // If this was the last chunk, get the file URI from the response
-          if (isLastChunk && result.fileUri) {
-            return result.fileUri;
-          }
-        }
-
-        if (done) break;
+      if (!chunkResponse.ok) {
+        throw new Error(`Failed to fetch chunk at ${bytesUploaded}: ${chunkResponse.statusText}`);
       }
 
-      throw new Error('Upload completed but no file URI received');
+      const chunkBuffer = await chunkResponse.arrayBuffer();
+      const chunk = new Uint8Array(chunkBuffer);
       
-    } finally {
-      reader.releaseLock();
+      const result = await this.uploadChunk(
+        session.uploadUrl,
+        chunk,
+        bytesUploaded,
+        totalSize,
+        mimeType,
+        isLastChunk
+      );
+
+      if (!result.success) {
+        throw new Error(`Chunk upload failed: ${result.error}`);
+      }
+
+      bytesUploaded += result.bytesUploaded;
+      
+      // Report progress
+      await this.progressReporter.reportProgress(uploadId, {
+        bytesUploaded,
+        totalBytes: totalSize,
+        percentage: Math.round((bytesUploaded / totalSize) * 100),
+        status: isLastChunk ? 'finalizing' : 'uploading',
+        message: isLastChunk ? 'Finalizing streaming upload' : `Streamed ${Math.round(bytesUploaded / 1024 / 1024)}MB`
+      });
+
+      // If this was the last chunk, get the file URI from the response
+      if (isLastChunk && result.fileUri) {
+        return result.fileUri;
+      }
     }
+
+    throw new Error('Streaming upload completed but no file URI received');
   }
 
   private async uploadChunk(
