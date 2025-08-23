@@ -25,7 +25,7 @@ export class ProgressReporter {
       }
 
       // Send progress update to Supabase Edge Function
-      const progressUrl = `${this.supabaseUrl}/functions/v1/process-video-with-gemini?action=progress`;
+      const progressUrl = `${this.supabaseUrl}/functions/v1/cloudflare-worker-manager?action=progress`;
       
       const response = await fetch(progressUrl, {
         method: 'POST',
