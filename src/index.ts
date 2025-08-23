@@ -51,6 +51,7 @@ export default {
         fileUri: result.fileUri,
         uploadId: result.uploadId,
         totalSize: result.totalSize,
+        expiresAt: result.expiresAt,
         message: 'File uploaded successfully to Google Files API'
       };
 
