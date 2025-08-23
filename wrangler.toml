@@ -16,5 +16,6 @@ preview_id = "21d0033adfe7492d9a91440abd55976d"
 [observability.logs]
 enabled = true
 
-
+[limits]
+cpu_ms = 300_000
 
