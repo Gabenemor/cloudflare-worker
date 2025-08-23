@@ -12,6 +12,7 @@ export interface UploadResponse {
   fileUri?: string;
   uploadId?: string;
   totalSize?: number;
+  expiresAt?: string;
   error?: string;
   message?: string;
 }
@@ -42,4 +43,5 @@ export interface FileUploadResult {
   fileUri: string;
   uploadId: string;
   totalSize: number;
+  expiresAt: string;
 }
