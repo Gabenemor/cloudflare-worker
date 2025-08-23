@@ -11,3 +11,10 @@ SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS
 binding = "UPLOAD_PROGRESS"
 id = "21d0033adfe7492d9a91440abd55976d"
 preview_id = "21d0033adfe7492d9a91440abd55976d"
+
+# wrangler.toml (wrangler v3.88.0^)
+[observability.logs]
+enabled = true
+
+
+
