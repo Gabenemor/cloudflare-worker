@@ -54,8 +54,8 @@ export class FileUploader {
         mimeType
       );
 
-      // Poll for file active state
-      const activeFileUri = await this.waitForFileActive(fileUri);
+      // Poll for file active state with file size context
+      const activeFileUri = await this.waitForFileActive(fileUri, totalSize);
 
       // Report completion
       await this.progressReporter.reportProgress(uploadId, {
@@ -259,12 +259,30 @@ export class FileUploader {
     };
   }
 
-  private async waitForFileActive(fileUri: string): Promise<string> {
+  private async waitForFileActive(fileUri: string, fileSizeBytes: number = 0): Promise<string> {
     const fileId = fileUri.split('/').pop();
-    const maxAttempts = 10;
-    const pollInterval = 2000; // 2 seconds
-
-    for (let i = 0; i < maxAttempts; i++) {
+    
+    // Dynamic timeout based on file size
+    const fileSizeMB = fileSizeBytes / (1024 * 1024);
+    const baseTimeoutSeconds = 60; // Base timeout for small files
+    const additionalTimePerMB = 0.5; // 0.5 seconds per MB
+    const maxTimeoutSeconds = 300; // 5 minutes maximum
+    
+    const timeoutSeconds = Math.min(
+      baseTimeoutSeconds + (fileSizeMB * additionalTimePerMB),
+      maxTimeoutSeconds
+    );
+    
+    console.log(`📊 File activation timeout: ${Math.round(timeoutSeconds)}s for ${Math.round(fileSizeMB)}MB file`);
+    
+    // Exponential backoff polling strategy
+    let attempt = 0;
+    const startTime = Date.now();
+    const maxAttempts = Math.ceil(timeoutSeconds / 2); // Ensure we have enough attempts
+    
+    while (Date.now() - startTime < timeoutSeconds * 1000) {
+      attempt++;
+      
       try {
         const statusUrl = `https://generativelanguage.googleapis.com/v1beta/files/${fileId}`;
         const response = await fetch(statusUrl, {
@@ -275,25 +293,38 @@ export class FileUploader {
 
         if (!response.ok) {
           console.warn(`File status check failed: ${response.statusText}`);
-          await new Promise(resolve => setTimeout(resolve, pollInterval));
-          continue;
+        } else {
+          const statusData = await response.json();
+          console.log(`📋 File status check ${attempt}: ${statusData.state} (${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
+          
+          if (statusData.state === 'ACTIVE') {
+            console.log(`✅ File is now ACTIVE after ${Math.round((Date.now() - startTime) / 1000)}s`);
+            return fileUri;
+          }
+          
+          if (statusData.state === 'FAILED') {
+            throw new Error(`File processing failed in Google Files API: ${statusData.error || 'Unknown error'}`);
+          }
         }
-
-        const statusData = await response.json();
-        if (statusData.state === 'ACTIVE') {
-          console.log('File is now ACTIVE in Google Files API');
-          return fileUri;
-        }
-
-        console.log(`File status: ${statusData.state}, waiting...`);
-        await new Promise(resolve => setTimeout(resolve, pollInterval));
         
       } catch (error) {
-        console.warn(`Status check attempt ${i + 1} failed:`, error);
-        await new Promise(resolve => setTimeout(resolve, pollInterval));
+        console.warn(`Status check attempt ${attempt} failed:`, error);
       }
+      
+      // Exponential backoff with jitter: start at 1s, increase gradually, max 5s
+      const baseDelay = Math.min(1000 * Math.pow(1.5, attempt - 1), 5000);
+      const jitter = Math.random() * 1000; // Add up to 1s random jitter
+      const delay = baseDelay + jitter;
+      
+      console.log(`⏱️ Waiting ${Math.round(delay / 1000)}s before next check...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
 
-    throw new Error(`File did not become ACTIVE within ${maxAttempts * pollInterval / 1000} seconds`);
+    // Provide detailed timeout error with context
+    const elapsedSeconds = Math.round((Date.now() - startTime) / 1000);
+    const errorMessage = `File did not become ACTIVE within ${Math.round(timeoutSeconds)}s timeout (${elapsedSeconds}s elapsed, ${attempt} attempts). Large files (${Math.round(fileSizeMB)}MB) may need more processing time.`;
+    
+    console.error(`❌ ${errorMessage}`);
+    throw new Error(errorMessage);
   }
 }
